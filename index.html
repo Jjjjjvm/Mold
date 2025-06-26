@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>مولد الصور والفيديو بالذكاء الاصطناعي</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Cairo', sans-serif;
+        }
+        .loader {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* Custom styles for radio buttons */
+        .mode-selector input[type="radio"] {
+            display: none;
+        }
+        .mode-selector label {
+            transition: all 0.3s ease;
+        }
+        .mode-selector input[type="radio"]:checked + label {
+            background-color: #4A5568; /* bg-gray-700 */
+            color: #ffffff;
+            border-color: #3b82f6; /* border-blue-500 */
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white flex items-center justify-center min-h-screen">
+
+    <div class="container mx-auto p-4 max-w-2xl text-center">
+        
+        <header class="mb-8">
+            <h1 class="text-4xl md:text-5xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 text-transparent bg-clip-text mb-2">مولد الصور والفيديو</h1>
+            <p class="text-gray-400 text-lg">حوّل كلماتك إلى صور ثابتة أو مقاطع فيديو قصيرة فريدة.</p>
+        </header>
+
+        <!-- Mode Selector -->
+        <div class="mb-6">
+            <div class="mode-selector bg-gray-800 rounded-xl p-2 inline-flex gap-2 border-2 border-gray-700">
+                <input type="radio" id="mode-image" name="generation-mode" value="image" checked>
+                <label for="mode-image" class="cursor-pointer py-2 px-6 rounded-lg font-semibold">صورة</label>
+                
+                <input type="radio" id="mode-video" name="generation-mode" value="video">
+                <label for="mode-video" class="cursor-pointer py-2 px-6 rounded-lg font-semibold">فيديو (تجريبي)</label>
+            </div>
+        </div>
+
+        <div class="bg-gray-800 p-6 rounded-2xl shadow-lg mb-8">
+            <div class="flex flex-col sm:flex-row gap-4">
+                <input type="text" id="prompt-input" placeholder="مثال: حصان يجري في حقل واسع عند غروب الشمس" class="flex-grow bg-gray-700 text-white placeholder-gray-500 p-4 rounded-xl border-2 border-gray-600 focus:border-blue-500 focus:ring-0 focus:outline-none transition duration-300">
+                <button id="generate-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-xl transition duration-300 shadow-md hover:shadow-lg">
+                    إنشاء
+                </button>
+            </div>
+        </div>
+
+        <div id="result-container" class="bg-gray-800 p-4 rounded-2xl shadow-lg min-h-[300px] flex items-center justify-center">
+            <div id="loader" class="hidden flex-col items-center">
+                <div class="loader"></div>
+                <p id="loader-text" class="mt-4 text-gray-400"></p>
+            </div>
+            <div id="image-wrapper" class="w-full">
+                 <p id="placeholder-text" class="text-gray-500">سيتم عرض النتيجة هنا</p>
+                <img id="generated-image" src="" alt="النتيجة" class="w-full max-w-lg mx-auto rounded-lg shadow-xl hidden" onerror="this.onerror=null; this.src='https://placehold.co/512x512/1f2937/9ca3af?text=Image+Not+Found';">
+            </div>
+            <div id="error-message" class="hidden text-red-400">
+                <p>عذرًا، حدث خطأ ما. يرجى المحاولة مرة أخرى.</p>
+                <p id="error-details" class="text-sm text-gray-500 mt-2"></p>
+            </div>
+        </div>
+         <footer class="mt-8 text-gray-500 text-sm">
+            <p>مدعوم بواسطة Gemini API</p>
+        </footer>
+    </div>
+
+    <script>
+        // DOM Elements
+        const promptInput = document.getElementById('prompt-input');
+        const generateBtn = document.getElementById('generate-btn');
+        const loader = document.getElementById('loader');
+        const loaderText = document.getElementById('loader-text');
+        const generatedImage = document.getElementById('generated-image');
+        const imageWrapper = document.getElementById('image-wrapper');
+        const errorMessage = document.getElementById('error-message');
+        const errorDetails = document.getElementById('error-details');
+        const placeholderText = document.getElementById('placeholder-text');
+
+        // State
+        let videoInterval;
+
+        // Event Listeners
+        generateBtn.addEventListener('click', handleGeneration);
+        promptInput.addEventListener('keyup', (event) => {
+            if (event.key === 'Enter') handleGeneration();
+        });
+
+        /**
+         * Determines whether to generate an image or a video based on user selection.
+         */
+        function handleGeneration() {
+            const mode = document.querySelector('input[name="generation-mode"]:checked').value;
+            if (videoInterval) clearInterval(videoInterval); // Stop any previous video loop
+
+            if (mode === 'image') {
+                generateSingleImage();
+            } else {
+                generateVideoFrames();
+            }
+        }
+
+        /**
+         * Fetches a single image from a prompt with robust error handling.
+         * @param {string} prompt - The text prompt.
+         * @returns {Promise<string>} - A promise that resolves with the base64 image URL.
+         */
+        async function fetchImage(prompt) {
+            const payload = {
+                instances: [{ prompt: prompt }],
+                parameters: { "sampleCount": 1 }
+            };
+            const apiKey = "AIzaSyCkN_5SuUfS_21mlzQ0BL3XE74Eh36W2Jw";
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`;
+
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            // Handle cases where the response is not JSON
+            if (!response.headers.get('content-type')?.includes('application/json')) {
+                const responseText = await response.text();
+                throw new Error(`استجابة غير متوقعة من الخادم: ${responseText}`);
+            }
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                const errorMessage = result.error?.message || JSON.stringify(result);
+                throw new Error(`خطأ من الواجهة البرمجية: ${errorMessage}`);
+            }
+
+            if (result.predictions && result.predictions.length > 0 && result.predictions[0].bytesBase64Encoded) {
+                return `data:image/png;base64,${result.predictions[0].bytesBase64Encoded}`;
+            } else {
+                // Handle cases where prediction is missing, possibly due to safety filters
+                throw new Error("لم يتم العثور على بيانات الصورة في الاستجابة. قد يكون المحتوى المطلوب غير مسموح به.");
+            }
+        }
+
+
+        /**
+         * Generates and displays a single image.
+         */
+        async function generateSingleImage() {
+            const prompt = promptInput.value.trim();
+            if (!prompt) {
+                alert('الرجاء إدخال وصف للصورة.');
+                return;
+            }
+
+            showLoading(true, 'جاري إنشاء الصورة، يرجى الانتظار...');
+
+            try {
+                const imageUrl = await fetchImage(prompt);
+                displayImage(imageUrl);
+            } catch (error) {
+                console.error('Error generating image:', error);
+                displayError(error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        /**
+         * Generates a sequence of images sequentially to simulate a video.
+         */
+        async function generateVideoFrames() {
+            const basePrompt = promptInput.value.trim();
+            if (!basePrompt) {
+                alert('الرجاء إدخال وصف للفيديو.');
+                return;
+            }
+            
+            showLoading(true, 'جاري تهيئة إنشاء الفيديو...');
+            
+            const numberOfFrames = 4;
+            const frames = [];
+
+            try {
+                // Fetch frames sequentially instead of in parallel
+                for (let i = 0; i < numberOfFrames; i++) {
+                    const prompt = `${basePrompt}, cinematic, frame ${i + 1}/${numberOfFrames}`;
+                    loaderText.textContent = `جاري إنشاء الإطار ${i + 1} من ${numberOfFrames}...`;
+                    const imageUrl = await fetchImage(prompt);
+                    frames.push(imageUrl);
+                }
+                playVideo(frames);
+            } catch (error) {
+                console.error('Error generating video frames:', error);
+                displayError(error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        /**
+         * Plays the generated frames as a looping video.
+         * @param {string[]} frames - Array of base64 image URLs.
+         */
+        function playVideo(frames) {
+            if (!frames || frames.length === 0) return;
+            
+            displayImage(frames[0]); // Show first frame immediately
+            let currentFrame = 0;
+            videoInterval = setInterval(() => {
+                currentFrame = (currentFrame + 1) % frames.length;
+                generatedImage.src = frames[currentFrame];
+            }, 500); // Change frame every 500ms
+        }
+
+        /**
+         * Manages the UI state during loading.
+         * @param {boolean} isLoading - Whether to show the loader.
+         * @param {string} [text=''] - The text to display with the loader.
+         */
+        function showLoading(isLoading, text = '') {
+            if (isLoading) {
+                generateBtn.disabled = true;
+                generateBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                loaderText.textContent = text;
+                loader.classList.remove('hidden');
+                imageWrapper.classList.add('hidden');
+                errorMessage.classList.add('hidden');
+                placeholderText.classList.add('hidden');
+            } else {
+                generateBtn.disabled = false;
+                generateBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                loader.classList.add('hidden');
+            }
+        }
+
+        /**
+         * Displays the result.
+         * @param {string} imageUrl - The base64 data URL.
+         */
+        function displayImage(imageUrl) {
+            generatedImage.src = imageUrl;
+            generatedImage.classList.remove('hidden');
+            imageWrapper.classList.remove('hidden');
+            errorMessage.classList.add('hidden');
+        }
+
+        /**
+         * Displays an error message.
+         * @param {string} message - The error message.
+         */
+        function displayError(message) {
+            errorDetails.textContent = message;
+            errorMessage.classList.remove('hidden');
+            imageWrapper.classList.add('hidden');
+            placeholderText.classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
